@@ -12,7 +12,7 @@ int numberOfThreads = 0;
 
 int main(int argc, char **argv) {
 
-    get_arguments(argc, argv);
+    get_arguments(argc, argv);  //argumanları çekiyor, hata kontrolü yapabiliriz burada
 
     DIR *directory;
     directory = opendir(directoryName);
@@ -26,13 +26,13 @@ int main(int argc, char **argv) {
 
     while ((ent = readdir (directory)) != NULL) {
 
-        if(strstr(ent->d_name,".txt") != NULL){
+        if(strstr(ent->d_name,".txt") != NULL){     //.txt olan bütün dosyaları sırayla çek
             FILE *file;
             char wordFull[31];
             char word[31];
             char *path;
 
-            if((path = malloc(strlen(ent->d_name)+strlen(directoryName)+2)) != NULL){
+            if((path = malloc(strlen(ent->d_name)+strlen(directoryName)+2)) != NULL){   //dosya yolunu oluşturuyor
                 path[0] = '\0';
                 strcat(path,directoryName);
                 strcat(path,"/");
@@ -41,7 +41,7 @@ int main(int argc, char **argv) {
 
             file = fopen(path,"r");
 
-            while(fscanf(file,"%s",wordFull) != EOF){
+            while(fscanf(file,"%s",wordFull) != EOF){   //kelimeyi çekiyor ve alpha numeric olmayan tüm karakterleri siliyor
 
                 int i;
                 int c = 0;
@@ -54,7 +54,7 @@ int main(int argc, char **argv) {
                     }
                 }
                 word[c] = '\0';
-
+                //kelime 'word' elimizde
             }
         }
     }
