@@ -6,8 +6,6 @@
 #include <ctype.h>
 #include <pthread.h>
 #include <semaphore.h>
-#include <zconf.h>
-
 
 #define INITIALSIZE 8
 
@@ -16,17 +14,20 @@ struct mainBuffer{
     struct location* locationHead;
     char word[100];
 };
+
 typedef struct property{
     struct mainBuffer* bufferPtr;
     size_t used;
     size_t size;
     int finished,filecount;
 }bufferProperty;
+
 struct location{
     char fileName[256];
     char directoryName[100];
     struct location* locationPtr;
 };
+
 struct thread_parameters{
     char fileName[256];
     char directoryName[100];
@@ -35,12 +36,11 @@ struct thread_parameters{
     size_t offsetPtr;
     int i,available,critic;
     pthread_t threadid;
-
     struct thread_parameters* others;
 };
 
 void get_arguments(int argc, char **argv);
-int organize(int*,bufferProperty*);
+int organize(bufferProperty*);
 void* work(void*);
 void putWord(char*,struct thread_parameters*);
 bufferProperty* generateBuffer(bufferProperty*);
@@ -51,7 +51,7 @@ sem_t sem,sem2,sem3,re,assign;
 //struct mainBuffer* generateBuffer();
 
 char* directoryName;
-int numberOfThreads = 0,ct=0;
+int numberOfThreads = 0;
 int main(int argc, char **argv) {
     int offsetPtr=0;
 
@@ -59,12 +59,12 @@ int main(int argc, char **argv) {
     get_arguments(argc, argv);  //argumanları çekiyor, hata kontrolü yapabiliriz burada
 
     sem_init(&sem, 0, 1);
-    sem_init(&sem2, 0, numberOfThreads);
+    sem_init(&sem2, 0, (unsigned)numberOfThreads);
     sem_init(&sem3, 0, 1);
     sem_init(&re, 0, 1);
     sem_init(&assign, 0, 1);
 
-    if(organize(&offsetPtr,generateBuffer(bp))==-1) exit(0);
+    if(organize(generateBuffer(bp))==-1) exit(0);
 }
 
 bufferProperty* generateBuffer(bufferProperty* bp){
@@ -74,28 +74,62 @@ bufferProperty* generateBuffer(bufferProperty* bp){
 }
 void get_arguments(int argc, char **argv) {
 
+    if(argc < 5) {
+        fprintf(stderr, "ERROR: Arguments not enough!\nUSAGE: ./a.out -d <directoryName> -n <#ofThreads>\n");
+        exit(-1);
+    }else if(argc > 5) {
+        fprintf(stderr, "ERROR: Too many arguments!\nUSAGE: ./a.out -d <directoryName> -n <#ofThreads>\n");
+        exit(-1);
+    }
+
     int option;
     while ((option = getopt(argc, argv,"d:n:")) != -1) {
         switch (option) {
-            case 'd' : directoryName = optarg;
+            case 'd' :
+                directoryName = optarg;
                 break;
-            case 'n' : numberOfThreads = atoi(optarg);
+
+            case 'n' :
+                if(!isdigit(optarg[0])) {
+                    fprintf(stderr, "ERROR: Threads number not an integer!\nUSAGE: ./a.out -d <directoryName> -n <#ofThreads>\n");
+                    exit(-1);
+                }
+                numberOfThreads = atoi(optarg);
                 break;
             default:
                 exit(EXIT_FAILURE);
         }
     }
 }
-int organize(int *offsetPtr,bufferProperty* bp){
-    printf("MAIN THREAD: Allocated initial array size to 8 pointers\n");
+int organize(bufferProperty* bp){
+
     DIR *directory;
+    DIR *directory2;
     directory = opendir(directoryName);
+    directory2 = opendir(directoryName);
 
     if (directory == NULL){ //no directory
-        fprintf(stderr,"Could not open given directory.\n");
-        return -1;
+        fprintf(stderr,"ERROR: Could not open given directory.\n");
+        free(bp);
+        exit(-1);
     }
 
+    struct dirent *countent;
+
+    int filecount = 0;
+
+    while((countent = readdir(directory2)) != NULL){
+        if(strstr(countent->d_name,".txt") != NULL){
+            filecount++;
+        }
+    }
+
+    if(filecount < numberOfThreads) {
+        fprintf(stderr,"ERROR: Number of threads more than files'!\n");
+        exit(-1);
+    }
+
+    printf("MAIN THREAD: Allocated initial array size to 8 pointers\n");
 
     int i;
     struct dirent *ent;
@@ -120,7 +154,8 @@ int organize(int *offsetPtr,bufferProperty* bp){
                 for(ct=0;ct<numberOfThreads;ct++){
                     pthread_join(parameters[ct].threadid,NULL);
                 }
-                printf("MAIN THREAD: All done (successfully read %d words with %d threads from %d files).\n",bp->used,numberOfThreads,bp->filecount);
+                printf("MAIN THREAD: All done (successfully read %ld words with %d threads from %d files).\n",bp->used,numberOfThreads,bp->filecount);
+                free(bp);
                 exit(0);
             }
             strcpy((parameters[i].directoryName), directoryName);
@@ -133,8 +168,6 @@ int organize(int *offsetPtr,bufferProperty* bp){
 
             parameters[i].i = i;
             parameters[i].threadid = thread[i];
-
-
         }
         i++;
     }
@@ -142,14 +175,14 @@ int organize(int *offsetPtr,bufferProperty* bp){
 void* work(void *parameters) {
     /*Bu üç satırda threadlerin inital fonksiyonlarında kullanılması gereken argümanları
      * pass ettik, bu parametreleri bir struct'ın içine koymuştuk daha öncesinde.
-     * struct mainBuffer* bizim üzerine ekleme yaptığımız buffer'ı poin ediyor.
+     * struct mainBuffer* bizim üzerine ekleme yaptığımız buffer'ı point ediyor.
      * */
     while(1) {
         struct thread_parameters *tp = (struct thread_parameters *) parameters;
         char *fileName = tp->fileName;
         char *directoryName = tp->directoryName;
         if (strstr(fileName, ".txt") != NULL) {     //.txt olan bütün dosyaları sırayla çek
-            printf("MAIN THREAD: Assigned \"%s\" to worker thread %u\n",tp->fileName,tp->threadid);
+            printf("MAIN THREAD: Assigned \"%s\" to worker thread %ld\n",tp->fileName,tp->threadid);
             sem_wait(&sem3);
                 tp->bp->filecount+=1;
             sem_post(&sem3);
@@ -187,40 +220,7 @@ void* work(void *parameters) {
                 tp->bp->used++;
                 tp->offsetPtr = tp->bp->used;
                 strcpy(tp->word,word);
-                /*
-                int s2val=0;
-                sem_getvalue(&sem2,&s2val);
 
-                while(s2val!=numberOfThreads){
-                    sem_getvalue(&sem2,&s2val);
-                }
-
-                sem_init(&sem2,0,0);
-                int ct;
-
-                for(ct=0;ct<tp->bp->size;ct++){
-
-                    if(tp->bp->bufferPtr[ct].word[0] != '\0' && strcmp(word,tp->bp->bufferPtr[ct].word)==0){
-
-                        tp->offsetPtr=(size_t)ct;
-                        tp->critic=1;
-                        break;
-                    }
-
-                }
-                for(ct=0;ct<numberOfThreads;ct++){
-
-                    if(strcmp(word,tp->others[ct].word)==0){
-
-                        tp->offsetPtr=tp->others[ct].offsetPtr;
-                        tp->critic=1;
-                        tp->others[ct].critic=1;
-
-                    }
-                }
-
-                sem_init(&sem2,0,(unsigned)numberOfThreads);
-                 */
                 if (tp->offsetPtr == tp->bp->size){
                     int sem2val=0;
                     sem_getvalue(&sem2,&sem2val);
@@ -231,7 +231,7 @@ void* work(void *parameters) {
                     }
                     sem_init(&sem2,0,0);
                     reallocation(tp->bp);
-                    printf("THREAD %u: Re-allocated array of %d pointers\n",tp->threadid,tp->bp->size);
+                    printf("THREAD %ld: Re-allocated array of %ld pointers\n",tp->threadid,tp->bp->size);
                     tp->bp->bufferPtr[tp->offsetPtr].locationHead = NULL;
                     sem_init(&sem2,0,(unsigned)numberOfThreads);
                 }
@@ -284,11 +284,11 @@ void putWord(char *word,struct thread_parameters* parameters){
     if(bp->bufferPtr[parameters->offsetPtr].locationHead==NULL){
         bp->bufferPtr[parameters->offsetPtr].locationPtr=calloc(3,sizeof(struct location));
         bp->bufferPtr[parameters->offsetPtr].locationHead=bp->bufferPtr->locationPtr;
-        printf("THREAD %u: Added \"%s\" at index %d\n",parameters->threadid,(bp->bufferPtr)[parameters->offsetPtr].word,parameters->offsetPtr);
+        printf("THREAD %ld: Added \"%s\" at index %ld\n",parameters->threadid,(bp->bufferPtr)[parameters->offsetPtr].word,parameters->offsetPtr);
     }else{
         bp->bufferPtr[parameters->offsetPtr].locationPtr->locationPtr=calloc(3,sizeof(struct location));
         bp->bufferPtr[parameters->offsetPtr].locationPtr=bp->bufferPtr[parameters->offsetPtr].locationPtr->locationPtr;
-        printf("THREAD %u: The word \"%s\" is already located at index %d\n",parameters->threadid,(bp->bufferPtr)[parameters->offsetPtr].word,parameters->offsetPtr);
+        printf("THREAD %ld: The word \"%s\" is already located at index %ld\n",parameters->threadid,(bp->bufferPtr)[parameters->offsetPtr].word,parameters->offsetPtr);
     }
     strcpy(bp->bufferPtr[parameters->offsetPtr].locationPtr->fileName,parameters->fileName);
     strcpy(bp->bufferPtr[parameters->offsetPtr].locationPtr->directoryName,parameters->directoryName);
@@ -298,4 +298,3 @@ void reallocation(bufferProperty *bp){
     bp->size*=2;
     bp->bufferPtr = (struct mainBuffer*)realloc(bp->bufferPtr, bp->size * sizeof(struct mainBuffer));
 }
-
