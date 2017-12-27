@@ -33,7 +33,7 @@ struct thread_parameters{
     char word[100];
     bufferProperty* bp;
     size_t offsetPtr;
-    int i,available;
+    int i,available,critic;
     pthread_t threadid;
 
     struct thread_parameters* others;
@@ -104,6 +104,7 @@ int organize(int *offsetPtr,bufferProperty* bp){
         parameters[i].available=1;
         parameters[i].i=-1;
         parameters[i].others=parameters;
+        parameters[i].critic=0;
     }
     i=0;
     pthread_t thread[numberOfThreads];
@@ -186,27 +187,40 @@ void* work(void *parameters) {
                 tp->bp->used++;
                 tp->offsetPtr = tp->bp->used;
                 strcpy(tp->word,word);
-
+                /*
                 int s2val=0;
                 sem_getvalue(&sem2,&s2val);
+
                 while(s2val!=numberOfThreads){
                     sem_getvalue(&sem2,&s2val);
                 }
+
                 sem_init(&sem2,0,0);
                 int ct;
+
                 for(ct=0;ct<tp->bp->size;ct++){
-                    if(strcmp(word,tp->bp->bufferPtr[ct].word)==0){
+
+                    if(tp->bp->bufferPtr[ct].word[0] != '\0' && strcmp(word,tp->bp->bufferPtr[ct].word)==0){
+
                         tp->offsetPtr=(size_t)ct;
+                        tp->critic=1;
                         break;
                     }
+
                 }
                 for(ct=0;ct<numberOfThreads;ct++){
+
                     if(strcmp(word,tp->others[ct].word)==0){
+
                         tp->offsetPtr=tp->others[ct].offsetPtr;
-                        break;
+                        tp->critic=1;
+                        tp->others[ct].critic=1;
+
                     }
                 }
-                sem_init(&sem2,0,numberOfThreads);
+
+                sem_init(&sem2,0,(unsigned)numberOfThreads);
+                 */
                 if (tp->offsetPtr == tp->bp->size){
                     int sem2val=0;
                     sem_getvalue(&sem2,&sem2val);
@@ -219,11 +233,39 @@ void* work(void *parameters) {
                     reallocation(tp->bp);
                     printf("THREAD %u: Re-allocated array of %d pointers\n",tp->threadid,tp->bp->size);
                     tp->bp->bufferPtr[tp->offsetPtr].locationHead = NULL;
-                    sem_init(&sem2,0,numberOfThreads);
+                    sem_init(&sem2,0,(unsigned)numberOfThreads);
                 }
                 sem_post(&sem);
                 sem_wait(&sem2);
+
+                int ct;
+
+                for(ct=0;ct<tp->bp->size;ct++){
+
+                    if(tp->bp->bufferPtr[ct].word[0] != '\0' && strcmp(word,tp->bp->bufferPtr[ct].word)==0){
+
+                        tp->offsetPtr=(size_t)ct;
+                        tp->critic=1;
+                        break;
+                    }
+
+                }
+                for(ct=0;ct<numberOfThreads;ct++){
+
+                    if(strcmp(word,tp->others[ct].word)==0){
+
+                        tp->offsetPtr=tp->others[ct].offsetPtr;
+                        tp->critic=1;
+                        tp->others[ct].critic=1;
+
+                    }
+                }
+                if(tp->critic==1) sem_wait(&re);
                 putWord(word, tp);
+                if(tp->critic==1){
+                    sem_post(&re);
+                    tp->critic=0;
+                }
                 sem_post(&sem2);
             }
         }
@@ -236,20 +278,21 @@ void* work(void *parameters) {
     }
 }
 void putWord(char *word,struct thread_parameters* parameters){
+
     bufferProperty* bp=parameters->bp;
     strcpy((bp->bufferPtr)[parameters->offsetPtr].word,word);
     if(bp->bufferPtr[parameters->offsetPtr].locationHead==NULL){
         bp->bufferPtr[parameters->offsetPtr].locationPtr=calloc(3,sizeof(struct location));
         bp->bufferPtr[parameters->offsetPtr].locationHead=bp->bufferPtr->locationPtr;
+        printf("THREAD %u: Added \"%s\" at index %d\n",parameters->threadid,(bp->bufferPtr)[parameters->offsetPtr].word,parameters->offsetPtr);
     }else{
-        printf("HERE\n");
         bp->bufferPtr[parameters->offsetPtr].locationPtr->locationPtr=calloc(3,sizeof(struct location));
-        bp->bufferPtr[parameters->offsetPtr].locationPtr=bp->bufferPtr->locationPtr->locationPtr;
+        bp->bufferPtr[parameters->offsetPtr].locationPtr=bp->bufferPtr[parameters->offsetPtr].locationPtr->locationPtr;
+        printf("THREAD %u: The word \"%s\" is already located at index %d\n",parameters->threadid,(bp->bufferPtr)[parameters->offsetPtr].word,parameters->offsetPtr);
     }
     strcpy(bp->bufferPtr[parameters->offsetPtr].locationPtr->fileName,parameters->fileName);
     strcpy(bp->bufferPtr[parameters->offsetPtr].locationPtr->directoryName,parameters->directoryName);
-    bp->bufferPtr[parameters->offsetPtr].locationPtr->fileName;
-    printf("THREAD %u: Added \"%s\" at index %d\n",parameters->threadid,(bp->bufferPtr)[parameters->offsetPtr].word,parameters->offsetPtr);
+
 }
 void reallocation(bufferProperty *bp){
     bp->size*=2;
